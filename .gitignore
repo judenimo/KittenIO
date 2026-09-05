@@ -1,0 +1,66 @@
+# .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+TestResults/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-temp-*/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.nox/
+.tox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.uv-cache/
+.venv/
+venv/
+*.egg-info/
+
+# Build and release output
+artifacts/
+dist/
+build/
+.package-check*/
+
+# Local game/runtime inputs and secrets
+Import/
+HelloWorld/
+StarMap/
+KittenIO.local.toml
+kittenio.local.json
+pairing-token
+*.pairing-token
+.env
+.env.*
+!.env.example
+
+# Local development-agent state
+.agents/
+.codex/
+.nova-initialization-manifest.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.DotSettings.user
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.bak
+
+user-scripts/

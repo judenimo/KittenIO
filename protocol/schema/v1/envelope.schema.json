@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kittenio.dev/protocol/v1/envelope.schema.json",
+  "title": "KittenIO v1 wire envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "type",
+    "game_instance_id",
+    "session_id",
+    "seq",
+    "sent_monotonic_ms",
+    "payload"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "type": {
+      "enum": [
+        "hello",
+        "welcome",
+        "telemetry",
+        "catalog",
+        "event",
+        "lease.acquire",
+        "lease.granted",
+        "lease.release",
+        "control",
+        "request",
+        "response",
+        "ping",
+        "pong",
+        "error"
+      ]
+    },
+    "game_instance_id": {
+      "type": "string",
+      "format": "uuid",
+      "not": { "const": "00000000-0000-0000-0000-000000000000" }
+    },
+    "session_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "not": { "const": "00000000-0000-0000-0000-000000000000" }
+        },
+        { "type": "null" }
+      ]
+    },
+    "seq": { "type": "integer", "minimum": 0 },
+    "sent_monotonic_ms": { "type": "integer", "minimum": 0 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "hello" } },
+        "required": ["type"]
+      },
+      "then": { "properties": { "session_id": { "type": "null" } } },
+      "else": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "not": { "const": "00000000-0000-0000-0000-000000000000" }
+          }
+        }
+      }
+    }
+  ]
+}

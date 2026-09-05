@@ -1,0 +1,6 @@
+name = "KittenIO"
+version = "0.1.0"
+description = "A safe WebSocket bridge for writing Kitten Space Agency flight software in Python."
+
+[StarMap]
+EntryAssembly = "KittenIO"

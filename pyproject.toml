@@ -1,0 +1,90 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kittenio"
+version = "0.1.0"
+description = "Python flight-software SDK and WebSocket bridge for Kitten Space Agency"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "KittenIO contributors" }]
+dependencies = ["numpy>=2.4", "websockets>=15,<16"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+
+[project.optional-dependencies]
+research = ["openscvx==0.5.2"]
+
+[dependency-groups]
+dev = [
+  "pre-commit>=4.1",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "ruff>=0.14.10",
+]
+
+[project.scripts]
+kittenio = "kittenio.cli:main"
+
+[project.urls]
+Repository = "https://github.com/judenimo/KittenIO"
+Issues = "https://github.com/judenimo/KittenIO/issues"
+
+[tool.hatch.build]
+exclude = [
+  "/.package-check*",
+  "/.pytest_cache",
+  "/.pytest-temp-*",
+  "/.uv-cache",
+  "/.venv",
+  "/build",
+  "/dist",
+  "/python/.package-check*",
+  "/python/.pytest_cache",
+  "/python/.pytest-temp-*",
+  "/python/.uv-cache",
+  "/python/.venv",
+  "/python/build",
+  "/python/dist",
+  "**/__pycache__",
+  "**/*.pyc",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/src/kittenio"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+  "/python/src/kittenio",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["python/tests"]
+asyncio_mode = "auto"
+markers = [
+  "unit: fast tests isolated from the loopback transport",
+  "integration: tests spanning SDK components or a loopback peer",
+  "contract: cross-language protocol, fixture, and packaging contracts",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["artifacts", "build"]
+
+[tool.ruff.lint]
+select = ["E4", "E9", "F", "I"]

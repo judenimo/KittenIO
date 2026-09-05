@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/KittenIO.Protocol/KittenIO.Protocol.csproj" />
+  <Project Path="src/KittenIO.Mod/KittenIO.Mod.csproj" />
+  <Project Path="tests/KittenIO.Protocol.Tests/KittenIO.Protocol.Tests.csproj" />
+  <Project Path="tests/KittenIO.KsaContract.Tests/KittenIO.KsaContract.Tests.csproj" />
+  <Project Path="tests/KittenIO.Mod.Tests/KittenIO.Mod.Tests.csproj" />
+</Solution>

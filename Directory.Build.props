@@ -1,0 +1,31 @@
+<Project>
+  <!-- Some supported development layouts contain StarMap and HelloWorld
+       checkouts. Scope KittenIO metadata so MSBuild discovery never rewrites
+       their assembly identity/version metadata. -->
+  <PropertyGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').StartsWith('KittenIO'))">
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>judenimo</Authors>
+    <Company>KittenIO contributors</Company>
+    <Product>KittenIO</Product>
+    <RepositoryUrl>https://github.com/judenimo/KittenIO</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Development-only KSA and StarMap inputs may live outside this source
+       tree. Explicit properties win, then environment variables, then the
+       traditional repository-local layout, then a legacy sibling reference
+       layout. None of these assemblies are packaged. -->
+  <PropertyGroup>
+    <KsaDir Condition="'$(KsaDir)' == '' and '$(KITTENIO_KSA_DIR)' != ''">$(KITTENIO_KSA_DIR)</KsaDir>
+
+    <KsaReferencePath Condition="'$(KsaReferencePath)' == '' and '$(KITTENIO_KSA_REFERENCE)' != ''">$(KITTENIO_KSA_REFERENCE)</KsaReferencePath>
+    <KsaReferencePath Condition="'$(KsaReferencePath)' == '' and Exists('$(MSBuildThisFileDirectory)Import\KSA.dll')">$(MSBuildThisFileDirectory)Import\KSA.dll</KsaReferencePath>
+    <KsaReferencePath Condition="'$(KsaReferencePath)' == '' and Exists('$(MSBuildThisFileDirectory)..\KittenIO\Import\KSA.dll')">$(MSBuildThisFileDirectory)..\KittenIO\Import\KSA.dll</KsaReferencePath>
+
+    <StarMapApiPath Condition="'$(StarMapApiPath)' == '' and '$(KITTENIO_STARMAP_API)' != ''">$(KITTENIO_STARMAP_API)</StarMapApiPath>
+    <StarMapApiPath Condition="'$(StarMapApiPath)' == '' and Exists('$(MSBuildThisFileDirectory)StarMap\StarMap.API\bin\Debug\net10.0\StarMap.API.dll')">$(MSBuildThisFileDirectory)StarMap\StarMap.API\bin\Debug\net10.0\StarMap.API.dll</StarMapApiPath>
+    <StarMapApiPath Condition="'$(StarMapApiPath)' == '' and Exists('$(MSBuildThisFileDirectory)..\KittenIO\StarMap\StarMap.API\bin\Debug\net10.0\StarMap.API.dll')">$(MSBuildThisFileDirectory)..\KittenIO\StarMap\StarMap.API\bin\Debug\net10.0\StarMap.API.dll</StarMapApiPath>
+  </PropertyGroup>
+</Project>

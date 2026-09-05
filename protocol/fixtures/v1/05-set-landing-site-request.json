@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "type": "request",
+  "game_instance_id": "11111111-1111-4111-8111-111111111111",
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "seq": 3,
+  "sent_monotonic_ms": 2300,
+  "request_id": "landing-site-1",
+  "payload": {
+    "method": "set_landing_site",
+    "command_id": "44444444-4444-4444-8444-444444444444",
+    "params": {
+      "body_id": "body:home:1",
+      "position_ccf_m": {"x": 600000.0, "y": 0.0, "z": 0.0},
+      "latitude_deg": 0.0,
+      "longitude_deg": 0.0,
+      "altitude_m": 0.0
+    }
+  }
+}

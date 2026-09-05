@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "type": "control",
+  "game_instance_id": "11111111-1111-4111-8111-111111111111",
+  "session_id": "22222222-2222-4222-8222-222222222222",
+  "seq": 8,
+  "sent_monotonic_ms": 2410,
+  "payload": {
+    "lease_id": "33333333-3333-4333-8333-333333333333",
+    "control_seq": 7,
+    "mode": "thrust_vector_target",
+    "engine_on": null,
+    "throttle": 0.65,
+    "thrust_vector_target": {"direction_cci": {"x": 0.0, "y": 1.0, "z": 0.0}}
+  }
+}

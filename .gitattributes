@@ -1,0 +1,15 @@
+# Keep source, documentation, configuration, and Git Bash entry points stable
+# across Windows and Unix checkouts.
+/.gitattributes text eol=lf
+*.cs text eol=lf
+*.csproj text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.props text eol=lf
+*.py text eol=lf
+*.slnx text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+/scripts/dev text eol=lf
+/scripts/kittenio text eol=lf

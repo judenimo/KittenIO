@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "type": "hello",
+  "game_instance_id": "11111111-1111-4111-8111-111111111111",
+  "session_id": null,
+  "seq": 0,
+  "sent_monotonic_ms": 1000,
+  "payload": {
+    "protocol": "kittenio",
+    "supported_versions": [1],
+    "mod_version": "0.1.0",
+    "game_version": "2026.7.6.4939",
+    "starmap_version": "0.4.5",
+    "capabilities": {
+      "control": {"exact_throttle": true, "engine_state": true, "stage": true, "set_target": true, "thrust_vector_target": true, "deadman_timeout_ms": 750},
+      "dynamics": {"gravity_cci": true, "gravity_cce": true, "gravity_local": true, "total_acceleration": true, "non_gravitational_acceleration": true, "body_parameters": true},
+      "propulsion": {"aggregate": true, "engines": true, "engine_positions": true, "gimbal_state": true, "gimbal_rate_limits": false, "restart_counts": false, "response_parameters": false},
+      "rigid_body": {"center_of_mass": true, "inertia_tensor": true, "angular_acceleration": true, "total_force_moment": true, "propulsive_force_moment": true, "aerodynamic_force_moment": false, "rcs_force_moment": false, "torque_authority": false},
+      "atmosphere": {"pressure": true, "density": true, "temperature": false, "speed_of_sound": false, "mach": false, "dynamic_pressure": true, "wind": false, "air_relative_velocity": true, "angles": false},
+      "landing": {"site_definition": true, "local_frame": true, "terrain_height": false, "ground_normal": true, "surface_slope": true},
+      "surface": {"ground_contact": true, "touchdown_events": true, "collision_events": false, "structural_failure_events": false, "engine_out_events": false, "propellant_exhaustion": true, "controllability": true, "contact_points": false, "landing_leg_state": false},
+      "applied_control": true,
+      "recording_replay": true,
+      "time_warp": {"control": true, "available_rates": [0.0, 1.0, 2.0, 4.0, 120.0], "ownership": "game_global_persistent", "unavailable_reason": null}
+    },
+    "units": "SI",
+    "coordinate_frames": ["cci", "cce", "orb"]
+  }
+}

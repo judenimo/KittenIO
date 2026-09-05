@@ -1,0 +1,24 @@
+title = "KittenIO Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic authentication placeholder used only by transport tests"
+regexTarget = "match"
+regexes = [
+  '''0123456789abcdefghijklmnopqrstuvwxyzABCDEFG''',
+  '''test-placeholder-token-x{32}''',
+  '''legacy-token-x{32}''',
+  '''s3pPLMBiTxaQ9kYGzzhZRbK\+xOo=''',
+  '''dGhlIHNhbXBsZSBub25jZQ==''',
+]
+
+[[allowlists]]
+description = "Generated and dependency directories are not public source"
+paths = [
+  '''(^|/)\.venv/''',
+  '''(^|/)\.uv-cache/''',
+  '''(^|/)\.pytest[^/]*/''',
+  '''(^|/)(artifacts|build|bin|obj|dist)/''',
+]
