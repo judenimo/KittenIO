@@ -3,8 +3,8 @@ title = "KittenIO Gitleaks configuration"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Deterministic authentication placeholder used only by transport tests"
+[allowlist]
+description = "Deterministic test values and generated directories"
 regexTarget = "match"
 regexes = [
   '''0123456789abcdefghijklmnopqrstuvwxyzABCDEFG''',
@@ -13,9 +13,6 @@ regexes = [
   '''s3pPLMBiTxaQ9kYGzzhZRbK\+xOo=''',
   '''dGhlIHNhbXBsZSBub25jZQ==''',
 ]
-
-[[allowlists]]
-description = "Generated and dependency directories are not public source"
 paths = [
   '''(^|/)\.venv/''',
   '''(^|/)\.uv-cache/''',

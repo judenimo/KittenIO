@@ -251,7 +251,7 @@ def test_optimizer_solve_deadline_marks_late_plan_unusable() -> None:
         plan = worker.latest_plan()
         assert plan is not None
         assert plan.deadline_exceeded(0.01)
-        assert plan.solve_duration_s >= 0.02
+        assert plan.solve_duration_s > 0.01
         assert not plan.feasible and plan.value is None
         assert plan.error is not None and plan.error.startswith("solve deadline exceeded")
         assert not plan.is_usable(

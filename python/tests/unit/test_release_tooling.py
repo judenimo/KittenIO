@@ -60,3 +60,22 @@ def test_wrong_pinned_game_or_loader_version_fails(
             expected_sha256=hashlib.sha256(content).hexdigest().upper(),
             expected_versions=frozenset({"expected-version"}),
         )
+
+
+def test_python_build_outputs_allow_uv_gitignore(tmp_path: Path) -> None:
+    wheel = tmp_path / "kittenio-0.1.0-py3-none-any.whl"
+    sdist = tmp_path / "kittenio-0.1.0.tar.gz"
+    wheel.touch()
+    sdist.touch()
+    (tmp_path / ".gitignore").write_text("*", encoding="utf-8")
+
+    assert dev._python_build_outputs(tmp_path) == ([wheel], [sdist])
+
+
+def test_python_build_outputs_reject_unexpected_files(tmp_path: Path) -> None:
+    (tmp_path / "kittenio-0.1.0-py3-none-any.whl").touch()
+    (tmp_path / "kittenio-0.1.0.tar.gz").touch()
+    (tmp_path / "unexpected.txt").touch()
+
+    with pytest.raises(dev.DevError, match="unexpected.txt"):
+        dev._python_build_outputs(tmp_path)

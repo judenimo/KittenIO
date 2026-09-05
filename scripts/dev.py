@@ -839,6 +839,23 @@ def _smoke_mod_install(mod_zip: Path) -> None:
             raise DevError("temporary StarMap layout did not enable KittenIO")
 
 
+def _python_build_outputs(destination: Path) -> tuple[list[Path], list[Path]]:
+    outputs = sorted(path for path in destination.iterdir() if path.is_file())
+    wheels = [path for path in outputs if path.suffix == ".whl"]
+    sdists = [path for path in outputs if path.name.endswith(".tar.gz")]
+    unexpected = [
+        path
+        for path in outputs
+        if path not in wheels and path not in sdists and path.name != ".gitignore"
+    ]
+    if len(wheels) != 1 or len(sdists) != 1 or unexpected:
+        raise DevError(
+            "Python build must produce exactly one wheel and one source distribution; "
+            f"unexpected={sorted(path.name for path in unexpected)}"
+        )
+    return wheels, sdists
+
+
 def _tracked_candidate_files() -> list[Path]:
     completed = subprocess.run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
@@ -918,10 +935,7 @@ def package() -> None:
     run_checked(
         [require_tool("uv"), "build", "--project", str(REPO_ROOT), "--out-dir", str(python_artifacts)]
     )
-    wheels = sorted(python_artifacts.glob("*.whl"))
-    sdists = sorted(python_artifacts.glob("*.tar.gz"))
-    if len(wheels) != 1 or len(sdists) != 1:
-        raise DevError("uv build must produce exactly one wheel and one source distribution")
+    wheels, sdists = _python_build_outputs(python_artifacts)
     for sdist in sdists:
         _sanitize_sdist(sdist)
     for distribution in wheels + sdists:
@@ -944,11 +958,7 @@ def python_dist_check() -> None:
         run_checked(
             [require_tool("uv"), "build", "--project", str(REPO_ROOT), "--out-dir", str(destination)]
         )
-        distributions = sorted(destination.iterdir())
-        wheels = [path for path in distributions if path.suffix == ".whl"]
-        sdists = [path for path in distributions if path.name.endswith(".tar.gz")]
-        if len(wheels) != 1 or len(sdists) != 1 or len(distributions) != 2:
-            raise DevError("Python build must produce exactly one wheel and one source distribution")
+        wheels, sdists = _python_build_outputs(destination)
         for sdist in sdists:
             _sanitize_sdist(sdist)
         for distribution in wheels + sdists:
