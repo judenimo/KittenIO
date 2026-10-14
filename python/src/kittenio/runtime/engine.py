@@ -8,7 +8,7 @@ import queue
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
@@ -39,10 +39,10 @@ from ..wire.models import (
     VehicleState,
 )
 from ..wire.protocol import Envelope, ProtocolError
+from .waits import WaitCondition, WaitTimeoutError, next_tick, wait_real_seconds, wait_sim_seconds, wait_until
 
 if TYPE_CHECKING:
     from .program import KittenProgram
-    from .waits import WaitCondition
 
 
 _MAX_SESSIONS = 8
@@ -64,6 +64,10 @@ class RuntimeErrorBase(RuntimeError):
 
 class RequestTimeoutError(RuntimeErrorBase):
     pass
+
+
+class ConnectionTimeoutError(RuntimeErrorBase):
+    """No first telemetry frame arrived before the connection deadline."""
 
 
 class RemoteError(RuntimeErrorBase):
@@ -233,6 +237,36 @@ class KsaApi:
     def connection(self) -> ConnectionInfo:
         return self._runtime.connection_info
 
+    def wait(self, seconds: float) -> FlightState:
+        """Wait for simulation seconds inside ``mission(ksa)``; no yield needed.
+
+        Telemetry and control renewal continue. A paused game pauses this wait.
+        Return the telemetry snapshot that completed the wait.
+        """
+        return self._runtime._wait_for(wait_sim_seconds(seconds))
+
+    def wait_real_seconds(self, seconds: float) -> FlightState:
+        """Wait for a telemetry frame after this many real seconds."""
+        return self._runtime._wait_for(wait_real_seconds(seconds))
+
+    def next_tick(self) -> FlightState:
+        """Wait for and return the next distinct telemetry frame."""
+        return self._runtime._wait_for(next_tick())
+
+    def wait_until(
+        self,
+        predicate: Callable[[FlightState], bool],
+        *,
+        timeout: float | None = None,
+        description: str = "condition",
+    ) -> FlightState:
+        """Wait for a predicate inside a function mission, with no yield needed.
+
+        ``timeout`` is an optional positive duration in real seconds. Catch
+        ``WaitTimeoutError`` around this ordinary call to recover on expiry.
+        """
+        return self._runtime._wait_for(wait_until(predicate, timeout=timeout, description=description))
+
     def set_landing_site(
         self,
         site: LandingSiteDefinition,
@@ -290,6 +324,10 @@ class KittenRuntime:
         self._terminal_lock = threading.Lock()
         self._terminal_error: BaseException | None = None
         self._terminal_stop_scheduled = False
+        self._running_program: KittenProgram | None = None
+        self._program_session: _SessionKey | None = None
+        self._mission_thread_id: int | None = None
+        self._wait_active = False
 
     def _active_state_locked(self) -> _SessionState | None:
         if self._active_session is None:
@@ -987,10 +1025,74 @@ class KittenRuntime:
             with self._pending_lock:
                 self._pending.pop(key, None)
 
-    def run_program(self, program: "KittenProgram") -> None:
+    def _wait_session_state(self, program: "KittenProgram", expected: _SessionKey) -> FlightState | None:
+        from .program import MissionInterruptedError
+
+        self._raise_terminal_fault()
+        # The function (and its adapter generator) is executing on this stack.
+        # Drain events without trying to close that generator reentrantly.
+        self._drain_lifecycle(program, expected, None, None, None)
+        with self._lock:
+            active = self._active_state_locked()
+            current = active is not None and active.key == expected and active.connection.connected
+            state = active.state if current else None
+        if program.stopped or self._stopping.is_set() or not current:
+            program.stop()
+            raise MissionInterruptedError(
+                "mission stopped while waiting because the KSA connection or runtime stopped; "
+                "check the game and rerun the mission explicitly"
+            )
+        return state
+
+    def _wait_for(self, condition: WaitCondition) -> FlightState:
+        """Cooperatively block one function mission on its existing user thread."""
+        from .program import _FunctionProgram
+
+        program = self._running_program
+        expected = self._program_session
+        if (
+            not isinstance(program, _FunctionProgram)
+            or expected is None
+            or threading.get_ident() != self._mission_thread_id
+        ):
+            raise RuntimeErrorBase("ksa wait calls must run inside mission(ksa) on the mission thread")
+        if self._wait_active:
+            raise RuntimeErrorBase("cannot start a second KittenIO wait inside a wait predicate")
+        self._wait_active = True
+        try:
+            initial = self._wait_session_state(program, expected)
+            if initial is None:
+                raise RuntimeErrorBase("flight telemetry is unavailable for this mission")
+            if condition.ready(initial):
+                return initial
+            while True:
+                self._wait_session_state(program, expected)
+                try:
+                    state_session, state = self._states.get(timeout=0.1)
+                except queue.Empty:
+                    self._wait_session_state(program, expected)
+                    check_timeout = getattr(condition, "_check_timeout", None)
+                    if callable(check_timeout):
+                        check_timeout()
+                    continue
+                self._wait_session_state(program, expected)
+                if state_session != expected:
+                    continue
+                self._mark_mission_progress()
+                if condition.ready(state):
+                    return state
+        finally:
+            self._wait_active = False
+
+    def run_program(self, program: "KittenProgram", *, connect_timeout: float | None = None) -> None:
         """Run callbacks on this thread until stopped or interrupted."""
 
+        connect_deadline = None if connect_timeout is None else self._deadline(connect_timeout, "connect_timeout")
+        if self._running_program is not None:
+            raise RuntimeErrorBase("a mission is already running on this runtime")
         program._bind(self)
+        self._running_program = program
+        self._mission_thread_id = threading.get_ident()
         started_session: _SessionKey | None = None
         previous_vehicle_id: str | None = None
         script: Any = None
@@ -1006,9 +1108,23 @@ class KittenRuntime:
                 )
                 if program.stopped:
                     break
+                if connect_deadline is not None and time.monotonic() >= connect_deadline:
+                    raise ConnectionTimeoutError(
+                        f"no flight telemetry received within {connect_timeout:g}s; "
+                        "launch KSA through StarMap, load a flight, and run `kittenio doctor`"
+                    )
                 try:
                     state_session, state = self._states.get(timeout=0.1)
                 except queue.Empty:
+                    check_timeout = getattr(wait, "_check_timeout", None)
+                    if callable(check_timeout):
+                        try:
+                            check_timeout()
+                        except WaitTimeoutError as exc:
+                            latest = self.data
+                            if latest is None:
+                                raise
+                            wait = self._step_script(script, wait, latest, program, wait_error=exc)
                     continue
                 # A connection event can arrive while this thread is blocked on
                 # first-state delivery. Drain again so on_connect always
@@ -1024,9 +1140,11 @@ class KittenRuntime:
                     connected = active is not None and active.connection.connected
                 if not connected or state_session != active_session:
                     continue
+                connect_deadline = None
                 self._mark_mission_progress()
                 if state_session != started_session:
                     started_session = state_session
+                    self._program_session = state_session
                     program.on_start()
                     self._raise_terminal_fault()
                     if program.stopped:
@@ -1056,23 +1174,36 @@ class KittenRuntime:
                         break
         finally:
             try:
-                if self._control.lease_active:
-                    self._control.release(timeout=0.5)
-            except Exception:
-                self._control._invalidate()
-            try:
-                # A synchronous request made by a user callback can be the
-                # operation that discovers malformed authenticated traffic.
-                # Its waiter is released only after the network thread queues
-                # the exact disconnect, but the callback then unwinds directly
-                # into this cleanup path. Deliver queued disconnect callbacks
-                # before the terminal on_stop callback.
-                self._drain_disconnects_before_stop(program)
+                self._close_script(script)
             finally:
                 try:
-                    program.on_stop()
+                    self._cleanup_program(program)
                 finally:
-                    self.stop()
+                    self._running_program = None
+                    self._program_session = None
+                    self._mission_thread_id = None
+
+    @staticmethod
+    def _close_script(script: Any) -> None:
+        close = getattr(script, "close", None)
+        if callable(close):
+            close()
+
+    def _cleanup_program(self, program: "KittenProgram") -> None:
+        try:
+            if self._control.lease_active:
+                self._control.release(timeout=0.5)
+        except Exception:
+            self._control._invalidate()
+        try:
+            # Deliver disconnects discovered by a synchronous user request
+            # before the terminal on_stop callback, including error paths.
+            self._drain_disconnects_before_stop(program)
+        finally:
+            try:
+                program.on_stop()
+            finally:
+                self.stop()
 
     def _drain_lifecycle(
         self,
@@ -1091,6 +1222,7 @@ class KittenRuntime:
                 program.on_connect(event.value)
             elif event.name == "disconnect":
                 if event.session is None or event.session == started_session:
+                    self._close_script(script)
                     started_session = None
                     previous_vehicle_id = None
                     script = None
@@ -1122,22 +1254,38 @@ class KittenRuntime:
         wait: "WaitCondition | None",
         state: FlightState,
         program: "KittenProgram",
+        *,
+        wait_error: WaitTimeoutError | None = None,
     ) -> "WaitCondition | None":
-        if wait is not None and not wait.ready(state):
-            return wait
+        if wait_error is None and wait is not None:
+            try:
+                if not wait.ready(state):
+                    return wait
+            except WaitTimeoutError as exc:
+                wait_error = exc
         try:
-            yielded = next(script)
+            if wait_error is None:
+                yielded = next(script)
+            else:
+                throw = getattr(script, "throw", None)
+                if not callable(throw):
+                    raise wait_error
+                yielded = throw(wait_error)
         except StopIteration:
             program.stop()
             return None
         if yielded is None:
-            from .waits import next_tick
-
-            return next_tick()
-        if not hasattr(yielded, "ready"):
-            raise TypeError("flight script must yield a KittenIO wait condition")
+            yielded = next_tick()
+        if not callable(getattr(yielded, "ready", None)):
+            raise TypeError(
+                "flight script must yield a KittenIO wait condition; "
+                "use `yield next_tick()` or `yield wait_sim_seconds(seconds)`"
+            )
         # Arm time- and frame-relative waits at the yield point, not one tick later.
-        yielded.ready(state)
+        # A function generator may have consumed newer frames through a direct
+        # ksa wait before yielding its next condition.
+        latest = None if program._runtime is None else program._runtime.data
+        yielded.ready(state if latest is None else latest)
         return yielded
 
     def _network_thread(self) -> None:

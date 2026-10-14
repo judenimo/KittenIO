@@ -156,7 +156,7 @@ def test_cli_accepts_implicit_and_explicit_run_forms(
     )
     calls: list[tuple[type, Path | None]] = []
 
-    def fake_run(program, *, config_path=None):
+    def fake_run(program, *, config_path=None, connect_timeout=15.0):
         calls.append((program, config_path))
 
     monkeypatch.setattr(cli, "run", fake_run)

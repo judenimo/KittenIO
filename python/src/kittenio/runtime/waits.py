@@ -14,6 +14,10 @@ class WaitCondition(Protocol):
     def ready(self, state: FlightState) -> bool: ...
 
 
+class WaitTimeoutError(TimeoutError):
+    """A predicate did not become true within its real-time deadline."""
+
+
 @dataclass(slots=True)
 class _NextTick:
     initial_frame: int | None = None
@@ -51,9 +55,23 @@ class _WaitRealSeconds:
 @dataclass(slots=True)
 class _WaitUntil:
     predicate: Callable[[FlightState], bool]
+    timeout_s: float | None = None
+    description: str = "condition"
+    deadline_s: float | None = None
+    completed: bool = False
 
     def ready(self, state: FlightState) -> bool:
-        return bool(self.predicate(state))
+        if self.completed:
+            return True
+        if self.deadline_s is None and self.timeout_s is not None:
+            self.deadline_s = time.monotonic() + self.timeout_s
+        self._check_timeout()
+        self.completed = bool(self.predicate(state))
+        return self.completed
+
+    def _check_timeout(self) -> None:
+        if not self.completed and self.deadline_s is not None and time.monotonic() >= self.deadline_s:
+            raise WaitTimeoutError(f"timed out after {self.timeout_s:g}s waiting for {self.description}")
 
 
 def _duration(value: float, name: str) -> float:
@@ -64,18 +82,36 @@ def _duration(value: float, name: str) -> float:
 
 
 def next_tick() -> WaitCondition:
+    """Resume at the next distinct telemetry frame."""
     return _NextTick()
 
 
 def wait_sim_seconds(seconds: float) -> WaitCondition:
+    """Wait using KSA's simulation clock; this wait pauses when the game pauses."""
     return _WaitSimSeconds(_duration(seconds, "seconds"))
 
 
 def wait_real_seconds(seconds: float) -> WaitCondition:
+    """Resume on a telemetry frame after this many wall-clock seconds."""
     return _WaitRealSeconds(_duration(seconds, "seconds"))
 
 
-def wait_until(predicate: Callable[[FlightState], bool]) -> WaitCondition:
+def wait_until(
+    predicate: Callable[[FlightState], bool],
+    *,
+    timeout: float | None = None,
+    description: str = "condition",
+) -> WaitCondition:
+    """Wait for a telemetry predicate, optionally bounded by real seconds.
+
+    The timeout starts when the mission yields this condition and continues
+    during game pauses or telemetry gaps. Predicates run on the mission thread.
+    """
     if not callable(predicate):
         raise TypeError("predicate must be callable")
-    return _WaitUntil(predicate)
+    timeout_s = None if timeout is None else _duration(timeout, "timeout")
+    if timeout_s == 0:
+        raise ValueError("timeout must be greater than zero")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("description must be a non-empty string")
+    return _WaitUntil(predicate, timeout_s, description)

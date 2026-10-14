@@ -1,5 +1,7 @@
 """KittenIO Python flight-software SDK."""
 
+from .api.control import ControlError
+from .api.orbit import OrbitInsertionResult, OrbitLaunchError, OrbitLaunchSettings, launch_to_orbit
 from .api.time_warp import TimeWarp, TimeWarpError
 from .api.vehicle import Vehicle, VehicleActivationError, VehicleControl, VehicleRegistry
 from .research.identification import (
@@ -22,9 +24,10 @@ from .research.transforms import (
     project_onto_enu,
     rotate_vector,
 )
+from .runtime.engine import ConnectionTimeoutError, KsaApi
 from .runtime.fsm import StateMachine
-from .runtime.program import KittenProgram, run
-from .runtime.waits import next_tick, wait_real_seconds, wait_sim_seconds, wait_until
+from .runtime.program import KittenProgram, MissionInterruptedError, run
+from .runtime.waits import WaitTimeoutError, next_tick, wait_real_seconds, wait_sim_seconds, wait_until
 from .transport.config import DEFAULT_URL, Config, ConfigError, default_config_path, load_config, save_config
 from .wire.common import (
     AxisCommand,
@@ -84,7 +87,9 @@ __all__ = [
     "Config",
     "ConfigError",
     "ConnectionInfo",
+    "ConnectionTimeoutError",
     "ControlCapabilities",
+    "ControlError",
     "ControlCommandTelemetry",
     "DEFAULT_URL",
     "DynamicsCapabilities",
@@ -93,6 +98,7 @@ __all__ = [
     "EngineTelemetry",
     "GimbalActuatorTelemetry",
     "KittenProgram",
+    "KsaApi",
     "ManualControlState",
     "LandingReferenceTelemetry",
     "LandingCapabilities",
@@ -100,7 +106,11 @@ __all__ = [
     "LatestOptimizerWorker",
     "Matrix3Symmetric",
     "ModelError",
+    "MissionInterruptedError",
     "OrbitState",
+    "OrbitInsertionResult",
+    "OrbitLaunchError",
+    "OrbitLaunchSettings",
     "OptimizerInput",
     "Quaternion",
     "PropulsionTelemetry",
@@ -126,6 +136,7 @@ __all__ = [
     "VehicleControl",
     "VehicleRegistry",
     "VehicleState",
+    "WaitTimeoutError",
     "default_config_path",
     "acceleration_prediction_errors_mps2",
     "as_numpy",
@@ -138,6 +149,7 @@ __all__ = [
     "export_csv",
     "inverse_rotate_vector",
     "load_config",
+    "launch_to_orbit",
     "normalize_quaternion",
     "normalize_vector",
     "next_tick",

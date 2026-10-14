@@ -16,7 +16,7 @@ from ..wire.common import CommandError, CommandResult, Vector3
 from ..wire.models import ThrustVectorControl, UnsupportedCapabilityError
 
 if TYPE_CHECKING:
-    from .runtime import KittenRuntime
+    from ..runtime.engine import KittenRuntime
 
 
 _MAX_LEASE_RECORDS = 64
@@ -662,7 +662,7 @@ class ControlClient:
         except RuntimeError as exc:
             # Runtime overload/send-budget failures are also loss of renewal,
             # but unrelated callback errors must remain visible.
-            from .runtime import RequestTimeoutError, RuntimeOverloadError
+            from ..runtime.engine import RequestTimeoutError, RuntimeOverloadError
 
             if isinstance(exc, (RequestTimeoutError, RuntimeOverloadError)):
                 self._invalidate_context(context)

@@ -7,20 +7,30 @@ import asyncio
 import hashlib
 import importlib
 import importlib.util
+import inspect
 import json
+import shlex
 import sys
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from types import ModuleType
 from typing import Sequence
 
+from .api.control import ControlError
+from .api.orbit import OrbitLaunchError
+from .api.time_warp import TimeWarpError
+from .api.vehicle import VehicleActivationError
 from .installer import InstallError, default_mods_directory, install_mod
-from .runtime.program import KittenProgram, run
+from .runtime.engine import RuntimeErrorBase
+from .runtime.program import KittenProgram, Mission, MissionInterruptedError, _validate_mission, run
+from .runtime.waits import WaitTimeoutError
+from .transport.client import ServerError
 from .transport.config import DEFAULT_URL, Config, ConfigError, default_config_path, load_config, save_config
 from .wire.common import ConnectionInfo
-from .wire.models import CapabilitySet, FlightState
+from .wire.models import CapabilitySet, FlightState, UnsupportedCapabilityError
 
-COMMANDS = frozenset({"run", "doctor", "pair", "install-mod"})
+COMMANDS = frozenset({"run", "new", "doctor", "pair", "install-mod"})
 _LEGACY_CONFIG_KEYS = frozenset({"url", "token", "show_diagnostics"})
 _DOCTOR_CONNECT_TIMEOUT_S = 6.0
 _DOCTOR_TELEMETRY_TIMEOUT_S = 5.0
@@ -32,6 +42,54 @@ _SUPPORTED_STARMAP_VERSIONS = frozenset(
         "0.4.6+57846b2971f95f48eb90a3483acacce832dd8751",
     }
 )
+
+_STARTER_MISSION = '''"""Read flight telemetry. Run with: kittenio mission.py"""
+
+from kittenio import KsaApi
+
+
+def mission(ksa: KsaApi):
+    # No control lease or engine commands: start by exploring telemetry.
+    ksa.wait_until(
+        lambda state: state.vehicle is not None,
+        timeout=30,
+        description="an active vehicle (load a flight in KSA)",
+    )
+
+    for _ in range(10):
+        state = ksa.data  # Read a fresh, immutable snapshot after each wait.
+        if state is not None and state.vehicle is not None:
+            vehicle = state.vehicle
+            altitude = vehicle.radar_altitude_m
+            altitude_text = "unavailable" if altitude is None else f"{altitude:.1f} m"
+            print(f"{vehicle.name}: radar altitude {altitude_text}")
+        ksa.wait_real_seconds(1)
+
+    print("Mission complete.")
+'''
+
+_ORBIT_STARTER = '''"""Experimental 200 km launch. Prepare the engine stage before running.
+
+Requires a ground-launched rocket with enough propellant, attitude control,
+and restartable, throttleable engines. See docs/orbital-launch.md.
+"""
+
+from kittenio import OrbitLaunchSettings, launch_to_orbit
+
+TARGET_ALTITUDE_M = 200_000  # Height above the parent body's mean radius.
+
+
+def mission(ksa):
+    result = launch_to_orbit(
+        ksa,
+        OrbitLaunchSettings(target_altitude_m=TARGET_ALTITUDE_M),
+        on_phase=lambda phase: print(f"Flight phase: {phase}"),
+    )
+    print(
+        f"Orbit: {result.periapsis_altitude_m / 1000:.1f} x "
+        f"{result.apoapsis_altitude_m / 1000:.1f} km"
+    )
+'''
 
 
 def _uses_legacy_config_keys(path: Path) -> bool:
@@ -46,19 +104,29 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kittenio",
         usage=(
-            "kittenio [run] FILE_OR_MODULE [--program CLASS] [--config PATH]\n"
-            "       kittenio {pair,doctor,install-mod} ..."
+            "kittenio [run] FILE_OR_MODULE [--program NAME] [--config PATH]\n"
+            "       kittenio {new,pair,doctor,install-mod} ..."
         ),
         description="Run KittenIO flight software from a Python file or module.",
-        epilog="commands:\n  kittenio run mission.py --program Ascent\n  kittenio doctor",
+        epilog="start scripting:\n  kittenio new mission.py\n  kittenio run mission.py\n  kittenio doctor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = sub.add_parser("run", help="run a KittenProgram from a file or module")
+    run_parser = sub.add_parser("run", help="run a mission function or KittenProgram from a file or module")
     run_parser.add_argument("target", help="mission.py or importable.module")
-    run_parser.add_argument("--program", help="class name when the target defines multiple programs")
+    run_parser.add_argument("--program", help="function or class name when the target defines multiple programs")
     run_parser.add_argument("--config", type=Path, help="configuration file")
+    run_parser.add_argument(
+        "--connect-timeout",
+        type=float,
+        default=15.0,
+        help="real seconds to wait for the first telemetry frame (default: 15)",
+    )
+
+    new = sub.add_parser("new", help="create a mission without overwriting existing files")
+    new.add_argument("path", nargs="?", type=Path, default=Path("mission.py"), help="new Python file (default: mission.py)")
+    new.add_argument("--template", choices=("telemetry", "orbit"), default="telemetry", help="starter type (default: telemetry)")
 
     doctor = sub.add_parser("doctor", help="authenticate and validate one in-game telemetry session")
     doctor.add_argument("--config", type=Path, help="configuration file")
@@ -90,6 +158,21 @@ def _reject_colon_selector(target: str) -> None:
         )
 
 
+@contextmanager
+def _mission_path(target: str):
+    """Give file missions Python's usual sibling-import behaviour."""
+    path = Path(target).expanduser()
+    if path.suffix != ".py" and not path.is_file():
+        yield
+        return
+    previous = sys.path[:]
+    sys.path.insert(0, str(path.resolve().parent))
+    try:
+        yield
+    finally:
+        sys.path[:] = previous
+
+
 def _load_module(target: str) -> ModuleType:
     _reject_colon_selector(target)
     path = Path(target)
@@ -105,7 +188,8 @@ def _load_module(target: str) -> ModuleType:
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         try:
-            spec.loader.exec_module(module)
+            with _mission_path(target):
+                spec.loader.exec_module(module)
         except BaseException:
             sys.modules.pop(spec.name, None)
             raise
@@ -123,14 +207,23 @@ def _is_local_program(value: object, module: ModuleType) -> bool:
     )
 
 
-def load_program(target: str, program_name: str | None = None) -> type[KittenProgram]:
-    """Load one locally defined flight-program class from *target*."""
+def _is_local_mission(value: object, module: ModuleType) -> bool:
+    return inspect.isfunction(value) and value.__module__ == module.__name__
+
+
+def load_program(target: str, program_name: str | None = None) -> type[KittenProgram] | Mission:
+    """Load a local ``mission(ksa)`` function or an established program class."""
 
     module = _load_module(target)
     if program_name is not None:
         value = getattr(module, program_name, None)
+        if _is_local_mission(value, module):
+            _validate_mission(value)
+            return value
         if not _is_local_program(value, module):
-            raise TypeError(f"{program_name!r} is not a locally defined KittenProgram subclass in {target}")
+            raise TypeError(
+                f"{program_name!r} is not a locally defined mission function or KittenProgram subclass in {target}"
+            )
         return value
 
     candidates = sorted(
@@ -140,10 +233,19 @@ def load_program(target: str, program_name: str | None = None) -> type[KittenPro
     conventional = [candidate for candidate in candidates if candidate.__name__ == "Program"]
     if conventional:
         return conventional[0]
+    mission = getattr(module, "mission", None)
+    if _is_local_mission(mission, module):
+        if candidates:
+            raise TypeError(f"{target} defines both mission and program classes; select one with --program NAME")
+        _validate_mission(mission)
+        return mission
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
-        raise TypeError(f"{target} does not define a KittenProgram subclass")
+        raise TypeError(
+            f"{target} does not define a KittenProgram subclass or a mission(ksa) function; "
+            "create a starter with `kittenio new mission.py`"
+        )
     names = ", ".join(candidate.__name__ for candidate in candidates)
     raise TypeError(
         f"{target} defines multiple KittenProgram subclasses ({names}); select one with --program ClassName"
@@ -289,7 +391,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(_normalize_argv(raw_argv))
     try:
         if args.command == "run":
-            run(load_program(args.target, args.program), config_path=args.config)
+            with _mission_path(args.target):
+                program = load_program(args.target, args.program)
+                print("Waiting for KSA flight telemetry. Press Ctrl+C to stop.")
+                run(program, config_path=args.config, connect_timeout=args.connect_timeout)
+            return 0
+        if args.command == "new":
+            path = args.path.expanduser().resolve()
+            if path.suffix != ".py":
+                raise ValueError("mission path must end in .py")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with path.open("x", encoding="utf-8", newline="\n") as stream:
+                    stream.write(_ORBIT_STARTER if args.template == "orbit" else _STARTER_MISSION)
+            except FileExistsError as exc:
+                raise ValueError(f"mission file already exists: {path}; choose a new path") from exc
+            print(f"Created {args.template} mission: {path}")
+            print(f"Run it with: kittenio {shlex.quote(str(path))}")
             return 0
         if args.command == "doctor":
             return _doctor(args.config)
@@ -320,6 +438,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Stopped.", file=sys.stderr)
         return 130
+    except (
+        RuntimeErrorBase,
+        MissionInterruptedError,
+        WaitTimeoutError,
+        ControlError,
+        OrbitLaunchError,
+        TimeWarpError,
+        VehicleActivationError,
+        UnsupportedCapabilityError,
+        ServerError,
+    ) as exc:
+        print(f"kittenio: {exc}", file=sys.stderr)
+        return 1
+    except SyntaxError as exc:
+        print(f"kittenio: {exc.filename}:{exc.lineno}: {exc.msg}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"kittenio: {exc}", file=sys.stderr)
+        return 2
     except (ConfigError, InstallError, ImportError, AttributeError, TypeError, ValueError) as exc:
         print(f"kittenio: {exc}", file=sys.stderr)
         return 2

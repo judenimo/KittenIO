@@ -49,10 +49,50 @@ does not send control or game-changing commands and never prints the token.
 
 ## Using KittenIO
 
-The supported Python surface is documented in the
-[Python API reference](docs/python-api.md). The repository intentionally ships
-without example flight programs; mission code must explicitly check advertised
-capabilities and acquire control authority before actuation.
+Create your first Python script:
+
+```bash
+kittenio new mission.py
+kittenio mission.py
+```
+
+The starter prints ten telemetry samples and exits. Open it in your editor to
+change the mission. It reads the game without acquiring control or changing the
+vehicle. From a source checkout, use `./scripts/kittenio` in place of `kittenio`.
+
+Simple scripts need one function:
+
+```python
+from kittenio import KsaApi
+
+
+def mission(ksa: KsaApi):
+    for _ in range(10):
+        state = ksa.data
+        if state is not None and state.vehicle is not None:
+            print(state.vehicle.name, state.vehicle.radar_altitude_m)
+        ksa.wait_real_seconds(1)
+```
+
+`mission` starts after the first telemetry frame and stops when it returns.
+Call `ksa.wait(2)` for simulation seconds, `ksa.wait_real_seconds(2)` for real
+seconds, or `ksa.wait_until(...)` for a condition. These calls handle telemetry
+and control renewal automatically; no `yield` or `async` is needed. Press Ctrl+C
+to stop. If the game disconnects, a function mission stops
+and must be rerun explicitly; reconnecting does not repeat its commands.
+
+The [scripting guide](docs/scripting.md) covers waits, direction holds, throttle,
+staging, helper files, and larger missions. The [Python API reference](docs/python-api.md)
+lists the supported surface. Existing `KittenProgram` classes remain supported.
+
+An [experimental orbital-launch example](docs/orbital-launch.md) targets 200 km:
+
+```bash
+kittenio new orbit.py --template orbit
+```
+
+It includes offline ascent/coast/insertion tests and requires a prepared engine
+stage. Live KSA flight verification and vehicle-specific tuning remain necessary.
 
 Control is guarded by an exact vehicle/session lease and a dead-man timeout.
 Leases are not restored after reconnection. Time-warp requests are capability
@@ -93,7 +133,8 @@ installation and usage help, see [SUPPORT.md](SUPPORT.md).
 - Protocol v1 has no compatibility negotiation with retired protocol versions.
 - KSA `2026.9.7.5402` and StarMap `0.4.6` are the sole verified game/loader pair.
 - Continuous actuation is limited to the advertised thrust-vector route.
-- No example mission programs are distributed.
+- The generated starter reads telemetry; flight-control code needs explicit
+  capability checks and a vehicle lease.
 - Automated contract and packaging tests passed for v0.1.0; a live KSA
   acceptance run was explicitly waived and is not claimed.
 

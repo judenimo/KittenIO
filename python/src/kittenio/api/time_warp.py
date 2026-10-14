@@ -10,7 +10,7 @@ from ..wire.common import CommandError, CommandResult
 from ..wire.models import UnsupportedCapabilityError
 
 if TYPE_CHECKING:
-    from .runtime import KittenRuntime
+    from ..runtime.engine import KittenRuntime
 
 
 class TimeWarpError(RuntimeError):

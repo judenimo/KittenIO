@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from weakref import WeakValueDictionary
 
+from ..research.transforms import rotate_vector
 from ..wire.common import (
     CommandResult,
     Vector3,
@@ -18,7 +19,7 @@ from ..wire.models import AppliedControlTelemetry, ThrustVectorControl, VehicleS
 from .control import ControlError
 
 if TYPE_CHECKING:
-    from .runtime import KittenRuntime
+    from ..runtime.engine import KittenRuntime
 
 
 _MAX_VEHICLE_HANDLES = 64
@@ -365,6 +366,26 @@ class VehicleControl:
             engine_on=engine_on,
             throttle=throttle,
         )
+
+    def hold_current_direction(
+        self,
+        *,
+        engine_on: bool | None = None,
+        throttle: float | None = None,
+    ) -> None:
+        """Hold the current vehicle +X thrust direction in inertial CCI space.
+
+        Requires an explicit lease and orientation telemetry. This initializes
+        the complete control frame, so later ``set_throttle`` calls can amend
+        it. Roll is not controlled. Engine/throttle defaults leave those inputs
+        under player control.
+        """
+        self._vehicle._require_valid()
+        state = self._vehicle.state
+        if state is None or state.body_to_cci is None:
+            raise ControlError("current vehicle orientation is unavailable; wait for orientation telemetry")
+        direction = rotate_vector(Vector3(1.0, 0.0, 0.0), state.body_to_cci)
+        self.set_thrust_vector(direction, engine_on=engine_on, throttle=throttle)
 
     def clear_overrides(self) -> None:
         self._vehicle._require_valid()

@@ -7,6 +7,7 @@ from kittenio import CapabilitySet, ConnectionInfo, FlightState, ThrustVectorCon
 from kittenio.api.control import ControlClient, ControlError
 from kittenio.api.time_warp import TimeWarp
 from kittenio.protocol import Envelope
+from kittenio.runtime.engine import RequestTimeoutError, RuntimeOverloadError
 
 GAME = "11111111-1111-4111-8111-111111111111"
 SESSION = "22222222-2222-4222-8222-222222222222"
@@ -96,3 +97,37 @@ def test_time_warp_uses_capability_not_protocol_number(
     runtime = FakeRuntime(flight_state, capabilities)
     result = TimeWarp(runtime).set_rate(2.0)
     assert result.ok and result.result["confirmed_frame"] == 2457
+
+
+@pytest.mark.parametrize("error_type", [RequestTimeoutError, RuntimeOverloadError])
+def test_control_renewal_budget_failure_releases_local_authority(
+    flight_state: FlightState, capabilities: CapabilitySet, monkeypatch, error_type,
+) -> None:
+    runtime = FakeRuntime(flight_state, capabilities)
+    control = ControlClient(runtime)
+    control.acquire()
+    control.set_thrust_vector(Vector3(1.0, 0.0, 0.0))
+
+    def fail_send(*args):
+        raise error_type("send budget exhausted")
+
+    monkeypatch.setattr(runtime, "_send_in_session", fail_send)
+    control._refresh()
+    assert not control.lease_active
+    assert control.override is None
+
+
+def test_control_renewal_keeps_unrelated_errors_visible(
+    flight_state: FlightState, capabilities: CapabilitySet, monkeypatch,
+) -> None:
+    runtime = FakeRuntime(flight_state, capabilities)
+    control = ControlClient(runtime)
+    control.acquire()
+    control.set_thrust_vector(Vector3(1.0, 0.0, 0.0))
+
+    def fail_send(*args):
+        raise RuntimeError("unexpected callback error")
+
+    monkeypatch.setattr(runtime, "_send_in_session", fail_send)
+    with pytest.raises(RuntimeError, match="unexpected callback error"):
+        control._refresh()
